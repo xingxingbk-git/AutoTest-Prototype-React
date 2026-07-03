@@ -34,9 +34,10 @@ describe("测试任务模块新版原型", () => {
     fireEvent.click(screen.getByRole("button", { name: "添加" }));
 
     expect(screen.getAllByText("本地MySQL8")).toHaveLength(2);
+    fireEvent.click(screen.getByLabelText("选择配置数据源本地MySQL8"));
     fireEvent.click(screen.getByRole("button", { name: "配置用例" }));
     expect(screen.getByRole("dialog", { name: "配置用例" })).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("选择Oracle 插入实时同步"));
+    fireEvent.click(screen.getByLabelText("选择DDL 新增字段同步"));
     fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     fireEvent.change(screen.getByLabelText("任务名称"), { target: { value: "每日核心测试" } });
@@ -95,5 +96,64 @@ describe("测试任务模块新版原型", () => {
     expect(within(dialog).getAllByText("成功").length).toBeGreaterThan(0);
     expect(within(dialog).getByText("失败")).toBeInTheDocument();
     expect(within(dialog).getByText("目标表状态值与预期不一致")).toBeInTheDocument();
+  });
+
+  it("支持多选数据源统一配置对应类型与共用用例", () => {
+    history.pushState({}, "", "/tasks/new");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "添加数据源" }));
+    fireEvent.click(screen.getByLabelText("选择本地MySQL8"));
+    fireEvent.click(screen.getByLabelText("选择oracle19c"));
+    fireEvent.click(screen.getByRole("button", { name: "添加" }));
+
+    fireEvent.click(screen.getByLabelText("选择配置数据源本地MySQL8"));
+    fireEvent.click(screen.getByLabelText("选择配置数据源oracle19c"));
+    fireEvent.click(screen.getByRole("button", { name: "配置用例" }));
+
+    const dialog = screen.getByRole("dialog", { name: "配置用例" });
+    expect(within(dialog).getByText("DDL 新增字段同步")).toBeInTheDocument();
+    expect(within(dialog).getByText("Oracle 插入实时同步")).toBeInTheDocument();
+    expect(within(dialog).getByText("异常恢复与重试")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText("选择DDL 新增字段同步"));
+    fireEvent.click(within(dialog).getByLabelText("选择Oracle 插入实时同步"));
+    fireEvent.click(within(dialog).getByLabelText("选择异常恢复与重试"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "保存配置" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "查看数据源本地MySQL8" }));
+    expect(screen.getByText("DDL 新增字段同步")).toBeInTheDocument();
+    expect(screen.getByText("异常恢复与重试")).toBeInTheDocument();
+    expect(screen.queryByText("Oracle 插入实时同步")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看数据源oracle19c" }));
+    expect(screen.getByText("Oracle 插入实时同步")).toBeInTheDocument();
+    expect(screen.getByText("异常恢复与重试")).toBeInTheDocument();
+    expect(screen.queryByText("DDL 新增字段同步")).not.toBeInTheDocument();
+  });
+
+  it("第二步始终可进入，并按数据源用例实例切换环境任务配置", () => {
+    history.pushState({}, "", "/tasks/new");
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "2 环境与任务配置" }));
+    expect(screen.getByText("尚未产生用例实例，请先在第一步配置数据源与用例。")).toBeInTheDocument();
+  });
+
+  it("用例和监控实例表格始终显示重新执行按钮并按勾选状态启用", () => {
+    history.pushState({}, "", "/tasks/task-1");
+    render(<App />);
+
+    const caseButton = screen.getByRole("button", { name: "重新执行所选用例实例" });
+    expect(caseButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("选择用例实例Oracle 插入实时同步"));
+    expect(screen.getByText("已选择 1 项")).toBeInTheDocument();
+    expect(caseButton).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("tab", { name: "监控实例" }));
+    const monitorButton = screen.getByRole("button", { name: "重新执行所选监控实例" });
+    expect(monitorButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("选择监控实例Oracle 插入实时同步"));
+    expect(screen.getByText("已选择 1 项")).toBeInTheDocument();
+    expect(monitorButton).toBeEnabled();
   });
 });

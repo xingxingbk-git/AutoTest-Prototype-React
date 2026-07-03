@@ -17,6 +17,9 @@ const sourcePool = [
   { id: "source-pg13", name: "pg13_59_5433", type: "PG", detail: "192.168.50.89:38080" },
 ];
 
+const caseMatchesSource = (testCase: TestCase, sourceType: string) =>
+  !testCase.dataSource || testCase.dataSource === sourceType || (sourceType === "PG" && testCase.dataSource === "PostgreSQL");
+
 const emptyTask = (): TestTask => ({
   id: `task-${Date.now()}`, code: `TASK-${Date.now().toString().slice(-6)}`, name: "", description: "",
   caseIds: [], sourceEnvironmentId: "source-mysql", environmentIds: [], enabled: true, concurrency: 2, failFast: true,
@@ -88,15 +91,27 @@ export function TaskEditorPage() {
   const [step, setStep] = useState<1 | 2>(1);
   const [sourceIds, setSourceIds] = useState<string[]>(taskId ? sources.map(source => source.id) : []);
   const [activeSource, setActiveSource] = useState("");
+  const [configSourceIds, setConfigSourceIds] = useState<string[]>([]);
+  const [sourceCaseMap, setSourceCaseMap] = useState<Record<string, string[]>>(() => taskId ? Object.fromEntries(sources.map(source => [source.id, draft.caseIds.filter(id => {
+    const testCase = state.cases.find(item => item.id === id);
+    return testCase ? caseMatchesSource(testCase, source.type) : false;
+  })])) : {});
   const [modal, setModal] = useState<"source" | "cases" | null>(null);
   const selectedSource = sourcePool.find(source => source.id === activeSource);
-  const selectedCases = state.cases.filter(item => draft.caseIds.includes(item.id));
+  const selectedCases = state.cases.filter(item => (sourceCaseMap[activeSource] || []).includes(item.id));
+  const instances = sourceIds.flatMap(sourceId => {
+    const source = sourcePool.find(item => item.id === sourceId);
+    return (sourceCaseMap[sourceId] || []).flatMap(caseId => {
+      const testCase = state.cases.find(item => item.id === caseId);
+      return source && testCase ? [{ id: `${sourceId}:${caseId}`, source, testCase }] : [];
+    });
+  });
   const save = (event: FormEvent) => { event.preventDefault(); if (!draft.name.trim()) return; dispatch({ type: "saveTask", value: draft }); navigate(`/tasks/${draft.id}`); };
 
   return <form className="task-editor" onSubmit={save}>
     <div className="task-steps">
       <button type="button" className={step === 1 ? "active" : ""} onClick={() => setStep(1)}><i>1</i>数据源与用例配置</button>
-      <button type="button" className={step === 2 ? "active" : ""} onClick={() => draft.name.trim() && setStep(2)}><i>2</i>环境与任务配置</button>
+      <button type="button" className={step === 2 ? "active" : ""} onClick={() => setStep(2)}><i>2</i>环境与任务配置</button>
     </div>
     {step === 1 ? <>
       <section className="task-form-card">
@@ -110,35 +125,38 @@ export function TaskEditorPage() {
         <header>数据源与用例配置</header>
         <div className="task-config-layout">
           <aside className="source-sidebar">
-            <div className="source-sidebar-head"><b>数据源</b><button type="button" aria-label="添加数据源" onClick={() => setModal("source")}><Plus /></button><button type="button" className="btn" onClick={() => activeSource && setModal("cases")}>配置用例</button></div>
-            {sourceIds.length === 0 ? <div className="source-empty">暂无数据源，请点击“添加”数据源。</div> : sourceIds.map(id => { const source = sourcePool.find(item => item.id === id)!; return <button type="button" className={`source-card ${activeSource === id ? "active" : ""}`} key={id} onClick={() => setActiveSource(id)}><span className={`source-icon ${source.type.toLowerCase()}`}>{source.type.slice(0, 2)}</span><span><b>{source.name}</b><small>用例 {selectedCases.length || 1} 个，启用 {selectedCases.length || 1} 个</small></span></button>; })}
+            <div className="source-sidebar-head"><b>数据源</b><button type="button" aria-label="添加数据源" onClick={() => setModal("source")}><Plus /></button><button type="button" className="btn" disabled={configSourceIds.length === 0} onClick={() => setModal("cases")}>配置用例</button></div>
+            {sourceIds.length === 0 ? <div className="source-empty">暂无数据源，请点击“添加”数据源。</div> : sourceIds.map(id => { const source = sourcePool.find(item => item.id === id)!; const count = (sourceCaseMap[id] || []).length; return <div className={`source-card ${activeSource === id ? "active" : ""}`} key={id}><button aria-label={`查看数据源${source.name}`} type="button" className="source-card-main" onClick={() => setActiveSource(id)}><span className={`source-icon ${source.type.toLowerCase()}`}>{source.type.slice(0, 2)}</span><span><b>{source.name}</b><small>用例 {count} 个，启用 {count} 个</small></span></button><input aria-label={`选择配置数据源${source.name}`} type="checkbox" checked={configSourceIds.includes(id)} onChange={event => setConfigSourceIds(current => event.target.checked ? [...current, id] : current.filter(value => value !== id))} /></div>; })}
           </aside>
           <div className="source-case-workspace">
             {!selectedSource ? <><header><b>未选择数据源</b><small>请选择左侧数据源查看任务内用例</small></header><div className="workspace-empty">添加数据源后，可在这里查看和启停任务内用例。</div></> :
-              <><header><span><b>{selectedSource.name}</b><small>{selectedSource.detail}</small></span><button type="button" onClick={() => setSourceIds(ids => ids.filter(id => id !== selectedSource.id))}>移除数据源</button></header>
+              <><header><span><b>{selectedSource.name}</b><small>{selectedSource.detail}</small></span><button type="button" onClick={() => { setSourceIds(ids => ids.filter(id => id !== selectedSource.id)); setSourceCaseMap(current => { const next = { ...current }; delete next[selectedSource.id]; return next; }); setActiveSource(""); }}>移除数据源</button></header>
               <table><thead><tr><th>用例</th><th>分类</th><th>数据源类型</th><th>任务内状态</th><th>操作</th></tr></thead><tbody>{selectedCases.map(testCase => <tr key={testCase.id}><td><b>{testCase.name}</b><small>{testCase.code}</small></td><td>{testCase.category}</td><td>{testCase.dataSource}</td><td><Switch checked={testCase.enabled} /></td><td><button type="button" onClick={() => setDraft(current => ({ ...current, caseIds: current.caseIds.filter(id => id !== testCase.id) }))}>移除</button></td></tr>)}</tbody></table></>}
           </div>
         </div>
       </section>
-    </> : <EnvironmentStep draft={draft} setDraft={setDraft} cases={selectedCases} environments={state.environments} />}
+    </> : <EnvironmentStep draft={draft} setDraft={setDraft} instances={instances} environments={state.environments} />}
     <footer className="task-editor-footer">
       <button type="button" className="btn" onClick={() => step === 2 ? setStep(1) : navigate("/tasks")}>{step === 2 ? "上一步" : "取消"}</button>
-      {step === 1 ? <button type="button" className="btn primary" onClick={() => draft.name.trim() && setStep(2)}>下一步</button> : <button className="btn primary">保存任务</button>}
+      {step === 1 ? <button type="button" className="btn primary" onClick={() => setStep(2)}>下一步</button> : <button className="btn primary">保存任务</button>}
     </footer>
-    {modal === "source" ? <SourceModal selected={sourceIds} onClose={() => setModal(null)} onSave={ids => { setSourceIds(ids); setActiveSource(ids[0] || ""); setModal(null); }} /> : null}
-    {modal === "cases" ? <CasesModal cases={state.cases} selected={draft.caseIds} onClose={() => setModal(null)} onSave={ids => { setDraft({ ...draft, caseIds: ids }); setModal(null); }} /> : null}
+    {modal === "source" ? <SourceModal selected={sourceIds} onClose={() => setModal(null)} onSave={ids => { setSourceIds(ids); setActiveSource(ids[0] || ""); setConfigSourceIds(current => current.filter(id => ids.includes(id))); setModal(null); }} /> : null}
+    {modal === "cases" ? <CasesModal cases={state.cases} sourceTypes={configSourceIds.map(id => sourcePool.find(source => source.id === id)?.type || "")} selected={[...new Set(configSourceIds.flatMap(id => sourceCaseMap[id] || []))]} onClose={() => setModal(null)} onSave={ids => { const nextMap = { ...sourceCaseMap }; configSourceIds.forEach(sourceId => { const source = sourcePool.find(item => item.id === sourceId); nextMap[sourceId] = source ? ids.filter(caseId => { const testCase = state.cases.find(item => item.id === caseId); return testCase ? caseMatchesSource(testCase, source.type) : false; }) : []; }); setSourceCaseMap(nextMap); setDraft({ ...draft, caseIds: [...new Set(Object.values(nextMap).flat())] }); setModal(null); }} /> : null}
   </form>;
 }
 
-function EnvironmentStep({ draft, setDraft, cases, environments }: { draft: TestTask; setDraft: (task: TestTask) => void; cases: TestCase[]; environments: Environment[] }) {
+type CaseInstance = { id: string; source: (typeof sourcePool)[number]; testCase: TestCase };
+
+function EnvironmentStep({ draft, setDraft, instances, environments }: { draft: TestTask; setDraft: (task: TestTask) => void; instances: CaseInstance[]; environments: Environment[] }) {
   const targets = environments.filter(env => env.role === "target");
-  const [activeCase, setActiveCase] = useState(cases[0]?.id || "");
+  const [activeInstance, setActiveInstance] = useState(instances[0]?.id || "");
+  const current = instances.find(item => item.id === activeInstance) || instances[0];
   return <section className="environment-card">
     <header>环境与任务配置</header>
     <div className="environment-options">{targets.map((env, index) => <label className={draft.environmentIds.includes(env.id) ? "selected" : ""} key={env.id}><input type="checkbox" checked={draft.environmentIds.includes(env.id)} onChange={event => setDraft({ ...draft, environmentIds: event.target.checked ? [...draft.environmentIds, env.id] : draft.environmentIds.filter(id => id !== env.id) })} /><b>{index === 0 ? "预发环境" : env.name}</b><small>{env.status === "healthy" ? "环境可用" : "环境状态需关注"}</small></label>)}</div>
     <div className="environment-mapping">
-      <aside>{cases.map(testCase => <button type="button" key={testCase.id} className={activeCase === testCase.id ? "active" : ""} onClick={() => setActiveCase(testCase.id)}><b>{testCase.name}</b><small>{testCase.dataSource}<span>已配置 {Math.max(draft.environmentIds.length, 0)}/3</span></small></button>)}</aside>
-      <div className="mapping-main"><header><b>{cases.find(item => item.id === activeCase)?.name || "请选择用例"}</b><small>约定任务名：oracle_CDC_INSERT_001</small></header>{targets.slice(0, 3).map((env, index) => <div className="mapping-row" key={env.id}><span><b>{index === 0 ? "预发环境 83" : env.name}</b><small>192.168.50.{83 + index}:38080</small></span><select><option>oracle_CDC_INSERT_001--&gt;dm8_p54_5236_dt</option></select><em>唯一匹配</em></div>)}</div>
+      <aside>{instances.length === 0 ? <div className="instance-empty">尚未产生用例实例，请先在第一步配置数据源与用例。</div> : instances.map(instance => <button type="button" key={instance.id} className={current?.id === instance.id ? "active" : ""} onClick={() => setActiveInstance(instance.id)}><b>{instance.testCase.name}</b><small>{instance.source.name}<span>已配置 {draft.environmentIds.length}/3</span></small></button>)}</aside>
+      <div className="mapping-main">{current ? <><header><b>{current.testCase.name}</b><small>{current.source.name} · 约定任务名：{current.testCase.code.toLowerCase()}</small></header>{targets.filter(env => draft.environmentIds.includes(env.id)).map((env, index) => <div className="mapping-row" key={env.id}><span><b>{index === 0 ? "预发环境 83" : env.name}</b><small>192.168.50.{83 + index}:38080</small></span><select><option>{current.testCase.code.toLowerCase()}--&gt;{current.source.type.toLowerCase()}_task_{index + 1}</option></select><em>唯一匹配</em></div>)}</> : <div className="workspace-empty">选择左侧用例实例后配置对应的环境任务。</div>}</div>
     </div>
   </section>;
 }
@@ -151,10 +169,12 @@ function SourceModal({ selected, onClose, onSave }: { selected: string[]; onClos
   </Modal>;
 }
 
-function CasesModal({ cases, selected, onClose, onSave }: { cases: TestCase[]; selected: string[]; onClose: () => void; onSave: (ids: string[]) => void }) {
+function CasesModal({ cases, sourceTypes, selected, onClose, onSave }: { cases: TestCase[]; sourceTypes: string[]; selected: string[]; onClose: () => void; onSave: (ids: string[]) => void }) {
   const [ids, setIds] = useState(selected);
+  const availableCases = cases.filter(item => sourceTypes.some(type => caseMatchesSource(item, type)));
   return <Modal title="配置用例" onClose={onClose} footer={<><button className="btn" onClick={onClose}>取消</button><button className="btn primary" onClick={() => onSave(ids)}>保存配置</button></>}>
-    <div className="case-modal-list">{cases.filter(item => item.dataSource === "Oracle" || item.id === "case-4").map(testCase => <label key={testCase.id}><input aria-label={`选择${testCase.name}`} type="checkbox" checked={ids.includes(testCase.id)} onChange={event => setIds(current => event.target.checked ? [...current, testCase.id] : current.filter(id => id !== testCase.id))} /><span><b>{testCase.name}</b><small>{testCase.code} · {testCase.category}</small></span><em>{testCase.dataSource || "Oracle"}</em></label>)}</div>
+    <div className="config-scope-note">适用范围：{sourceTypes.join("、")} 类型用例及共用用例</div>
+    <div className="case-modal-list">{availableCases.map(testCase => <label key={testCase.id}><input aria-label={`选择${testCase.name}`} type="checkbox" checked={ids.includes(testCase.id)} onChange={event => setIds(current => event.target.checked ? [...current, testCase.id] : current.filter(id => id !== testCase.id))} /><span><b>{testCase.name}</b><small>{testCase.code} · {testCase.category}</small></span><em>{testCase.dataSource || "共用"}</em></label>)}</div>
   </Modal>;
 }
 
@@ -181,7 +201,7 @@ export function TaskDetailPage() {
     <div className="task-detail-layout">
       <section className="task-detail-main">
         <div className="detail-tabs" role="tablist"><button role="tab" aria-selected={tab === "cases"} className={tab === "cases" ? "active" : ""} onClick={() => setTab("cases")}>用例实例</button><button role="tab" aria-selected={tab === "monitors"} className={tab === "monitors" ? "active" : ""} onClick={() => setTab("monitors")}>监控实例</button><button role="tab" aria-selected={tab === "report"} className={tab === "report" ? "active" : ""} onClick={() => setTab("report")}>统计报告</button></div>
-        {tab === "cases" ? <CasesDetail cases={cases} onDetail={() => setDetailModal(true)} /> : tab === "monitors" ? <MonitorDetail results={results} /> : <ReportView />}
+        {tab === "cases" ? <CasesDetail cases={cases} onDetail={() => setDetailModal(true)} onRerun={() => setRunModal(true)} /> : tab === "monitors" ? <MonitorDetail results={results} onRerun={() => setRunModal(true)} /> : <ReportView />}
       </section>
       <HistoryPanel results={results} />
     </div>
@@ -194,14 +214,26 @@ function StatCard({ title, unit, values }: { title: string; unit: string; values
   return <section className="stat-card"><header><b>{title}</b><span>{unit}</span></header><div>{values.map(([label, value, tone]) => <span key={label}><small>{label}</small><strong className={tone}>{value}</strong></span>)}</div></section>;
 }
 
-function CasesDetail({ cases, onDetail }: { cases: TestCase[]; onDetail: () => void }) {
-  return <div className="detail-workspace"><aside className="detail-source-list">{["Oracle 订单主库", "panweidb", "MySQL 用户中心", "mysql84_node60_3307", "pg13_59_5433", "kingbase-mysql", "kingbase-pg", "gauss_d61_8000", "sqlserver2016_66_source...", "golden_p86_8881"].map((name, index) => <button className={index === 0 ? "active" : ""} key={name}><b>{name}</b><small>ds-{name.toLowerCase().replaceAll(" ", "-")}-01</small></button>)}</aside>
-    <div className="detail-table-area"><header><b>用例实例列表</b><div><select><option>全部状态</option></select><select><option>全部分类</option></select><select><option>全部标签</option></select></div></header><table><thead><tr><th>用例名称 / 编码</th><th>环境</th><th>PRE_TEST</th><th>TEST</th><th>POST_TEST</th><th>监控实例</th><th>通过 / 失败 / 未监控</th><th>最近执行</th><th>操作</th></tr></thead><tbody>{(cases.length ? cases : []).slice(0, 2).map((testCase, index) => <tr key={testCase.id}><td><b>{testCase.name}</b><small>{testCase.code} · {testCase.category}</small></td><td><span className="positive">● 通过</span></td><td><span className="positive">● 通过</span></td><td className={index ? "pending" : "negative"}>{index ? "◌ WAIT_SYNC" : "● 失败"}</td><td>{index ? "⊘ 跳过" : "◌ WAIT_SYNC"}</td><td>3</td><td><span className="positive">{index ? 3 : 2}</span> / <span className="negative">{index ? 0 : 1}</span> / 0</td><td>2026-06-24 10:18</td><td><button onClick={onDetail}>监控明细</button><button onClick={onDetail}>子项详情</button></td></tr>)}</tbody></table></div>
+function CasesDetail({ cases, onDetail, onRerun }: { cases: TestCase[]; onDetail: () => void; onRerun: () => void }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const detailSources = [
+    { id: "detail-oracle", name: "Oracle 订单主库", type: "Oracle", detail: "Oracle 19c" },
+    { id: "detail-mysql", name: "MySQL 用户中心", type: "MySQL", detail: "本地MySQL8" },
+    { id: "detail-pg", name: "PostgreSQL 业务库", type: "PG", detail: "PostgreSQL" },
+  ];
+  const [activeSourceId, setActiveSourceId] = useState(detailSources[0].id);
+  const active = detailSources.find(item => item.id === activeSourceId)!;
+  const visibleCases = cases.filter(testCase => caseMatchesSource(testCase, active.type));
+  const instanceId = (testCase: TestCase) => `${active.id}:${testCase.id}`;
+  const allSelected = visibleCases.length > 0 && visibleCases.every(item => selected.includes(instanceId(item)));
+  return <div className="detail-workspace"><aside className="detail-source-list">{detailSources.map(source => <button className={source.id === activeSourceId ? "active" : ""} key={source.id} onClick={() => { setActiveSourceId(source.id); setSelected([]); }}><b>{source.name}</b><small>{source.detail}</small></button>)}</aside>
+    <div className="detail-table-area"><header><b>用例实例列表 <span className="selected-count">已选择 {selected.length} 项</span></b><div><select><option>全部状态</option></select><select><option>全部分类</option></select><select><option>全部标签</option></select><button className="btn rerun-btn" aria-label="重新执行所选用例实例" disabled={selected.length === 0} onClick={onRerun}><RotateCcw size={14} />重新执行</button></div></header><table><thead><tr><th className="instance-check"><input aria-label="全选用例实例" type="checkbox" checked={allSelected} onChange={event => setSelected(event.target.checked ? visibleCases.map(instanceId) : [])} /></th><th>用例名称 / 编码</th><th>环境</th><th>PRE_TEST</th><th>TEST</th><th>POST_TEST</th><th>监控实例</th><th>通过 / 失败 / 未监控</th><th>最近执行</th><th>操作</th></tr></thead><tbody>{visibleCases.map((testCase, index) => { const id = instanceId(testCase); return <tr key={id}><td className="instance-check"><input aria-label={`选择用例实例${testCase.name}`} type="checkbox" checked={selected.includes(id)} onChange={event => setSelected(current => event.target.checked ? [...current, id] : current.filter(value => value !== id))} /></td><td><b>{testCase.name}</b><small>{active.detail} · {testCase.code}</small></td><td><span className="positive">● 通过</span></td><td><span className="positive">● 通过</span></td><td className={index ? "pending" : "negative"}>{index ? "◌ WAIT_SYNC" : "● 失败"}</td><td>{index ? "⊘ 跳过" : "◌ WAIT_SYNC"}</td><td>3</td><td><span className="positive">{index ? 3 : 2}</span> / <span className="negative">{index ? 0 : 1}</span> / 0</td><td>2026-06-24 10:18</td><td><button onClick={onDetail}>监控明细</button><button onClick={onDetail}>子项详情</button></td></tr>; })}</tbody></table></div>
   </div>;
 }
 
-function MonitorDetail({ results }: { results: ReturnType<typeof usePrototype>["state"]["taskRuns"][number]["results"] }) {
+function MonitorDetail({ results, onRerun }: { results: ReturnType<typeof usePrototype>["state"]["taskRuns"][number]["results"]; onRerun: () => void }) {
   const [showDiff, setShowDiff] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
   const rows = [
     { caseName: "Oracle 插入实时同步", source: "Oracle 19c", taskName: "oracle_CDC_INSERT_001_task_PRE", compareName: "oracle_CDC_INSERT_001_task_PRE_check" },
     { caseName: "异常恢复与重试", source: "Oracle 19c", taskName: "EXCEPTION_RETRY_019c_task_PRE", compareName: "EXCEPTION_RETRY_019c_task_PRE_check" },
@@ -209,9 +241,10 @@ function MonitorDetail({ results }: { results: ReturnType<typeof usePrototype>["
   ];
   return <div className="detail-workspace">
     <aside className="detail-source-list monitor-list">{["预发环境 83", "测试环境 85", "测试环境 51"].map((name, index) => <button className={index === 0 ? "active" : ""} key={name}><b>{name}</b><small>192.168.50.{83 - index}:38080</small></button>)}</aside>
-    <div className="detail-table-area monitor-detail-table"><header><b>监控实例明细</b><div><select><option>全部数据源</option></select><select><option>全部用例</option></select><select><option>全部状态</option></select></div></header>
-      <table aria-label="监控实例明细列表"><thead><tr><th>关联用例实例</th><th>同步任务 / 比对任务</th><th>全量同步状态</th><th>比对模式</th><th>差异数</th><th>差异样例</th><th>状态</th><th>消息</th></tr></thead>
+    <div className="detail-table-area monitor-detail-table"><header><b>监控实例明细 <span className="selected-count">已选择 {selected.length} 项</span></b><div><select><option>全部数据源</option></select><select><option>全部用例</option></select><select><option>全部状态</option></select><button className="btn rerun-btn" aria-label="重新执行所选监控实例" disabled={selected.length === 0} onClick={onRerun}><RotateCcw size={14} />重新执行</button></div></header>
+      <table aria-label="监控实例明细列表"><thead><tr><th className="instance-check"><input aria-label="全选监控实例" type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.taskName) : [])} /></th><th>关联用例实例</th><th>同步任务 / 比对任务</th><th>全量同步状态</th><th>比对模式</th><th>差异数</th><th>差异样例</th><th>状态</th><th>消息</th></tr></thead>
         <tbody>{rows.map((row, index) => <tr key={row.taskName}>
+          <td className="instance-check"><input aria-label={`选择监控实例${row.caseName}`} type="checkbox" checked={selected.includes(row.taskName)} onChange={event => setSelected(current => event.target.checked ? [...current, row.taskName] : current.filter(name => name !== row.taskName))} /></td>
           <td><b>{row.caseName}</b><small>{row.source}</small></td>
           <td className="task-pair-cell">
             <button type="button" aria-label={`同步任务 ${row.taskName}`}>{row.taskName}</button>
