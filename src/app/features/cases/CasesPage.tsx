@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, Edit3, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Edit3, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { EmptyState } from "../../components/prototype/Primitives";
@@ -94,10 +94,8 @@ export function CaseEditorPage() {
   const { state, dispatch } = usePrototype();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<TestCase>(() => structuredClone(state.cases.find(item => item.id === caseId) || emptyCase()));
-  const [activePhase, setActivePhase] = useState<CasePhase>("pre_test");
   const [drawerItem, setDrawerItem] = useState<CaseItem | null>(null);
   const [tagInput, setTagInput] = useState("");
-  const phaseItems = draft.items.filter(item => item.phase === activePhase);
 
   const save = (event: FormEvent) => {
     event.preventDefault();
@@ -119,36 +117,48 @@ export function CaseEditorPage() {
     });
     setDrawerItem(null);
   };
+  const moveItem = (phase: CasePhase, itemId: string, direction: -1 | 1) => {
+    setDraft(current => {
+      const phaseItems = current.items.filter(item => item.phase === phase);
+      const index = phaseItems.findIndex(item => item.id === itemId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= phaseItems.length) return current;
+      const nextPhaseItems = [...phaseItems];
+      [nextPhaseItems[index], nextPhaseItems[target]] = [nextPhaseItems[target], nextPhaseItems[index]];
+      let cursor = 0;
+      return { ...current, items: current.items.map(item => item.phase === phase ? nextPhaseItems[cursor++] : item) };
+    });
+  };
 
   return <form className="case-editor-page" onSubmit={save}>
     <section className="case-editor-basic">
       <label>用例名称<input aria-label="用例名称" value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="请输入用例名称" required /></label>
-      <label className="wide">用例描述<input aria-label="用例描述" value={draft.description || ""} onChange={event => setDraft({ ...draft, description: event.target.value })} placeholder="请输入用例描述" /></label>
+      <label>用例描述<input aria-label="用例描述" value={draft.description || ""} onChange={event => setDraft({ ...draft, description: event.target.value })} placeholder="请输入用例描述" /></label>
     </section>
     <section className="case-editor-config">
       <label>任务类型<select aria-label="任务类型" value={draft.taskType} onChange={event => setDraft({ ...draft, taskType: event.target.value as TestCase["taskType"] })}><option value="" disabled hidden>请选择任务类型</option><option>REALTIME</option><option>FULL</option><option>FULL_REALTIME</option></select></label>
       <label>功能分类<select aria-label="功能分类" value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })}><option value="" disabled hidden>请选择功能分类</option><option>CDC同步</option><option>DDL同步</option><option>全局规则</option><option>异常场景</option></select></label>
-      <label>数据源类型<select aria-label="数据源类型" value={draft.dataSource} onChange={event => setDraft({ ...draft, dataSource: event.target.value })}><option value="" disabled hidden>请选择数据源类型</option><option>MySQL</option><option>Oracle</option><option>PostgreSQL</option><option>SQLServer</option></select></label>
-      <label>约定任务名<input value={draft.taskName || ""} onChange={event => setDraft({ ...draft, taskName: event.target.value })} placeholder="请输入约定任务名" /></label>
+      <label>数据源类型<div className="case-token-select">{draft.dataSource ? <span className="tag">{draft.dataSource}</span> : null}<select aria-label="数据源类型" value={draft.dataSource} onChange={event => setDraft({ ...draft, dataSource: event.target.value })}><option value="" disabled hidden>请选择数据源类型</option><option>MySQL</option><option>Oracle</option><option>PostgreSQL</option><option>SQLServer</option><option>GaussDB</option><option>OpenGauss</option></select></div></label>
+      <label>约定任务名<input value={draft.taskName || ""} onChange={event => setDraft({ ...draft, taskName: event.target.value })} placeholder="${ds_type}_${case_code}" /></label>
       <label>标签<div className="case-tag-input">{draft.tags.map(value => <span className="tag removable-tag" key={value}>{value}<button type="button" aria-label={`删除标签 ${value}`} onClick={() => setDraft(current => ({ ...current, tags: current.tags.filter(tag => tag !== value) }))}><X size={12} /></button></span>)}<input value={tagInput} onChange={event => setTagInput(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); addTag(); } }} placeholder="输入标签后按回车" /></div></label>
     </section>
-    <section className="case-phase-workspace">
-      <div className="case-phase-toolbar"><span>三阶段动作编排</span><button type="button" className="btn primary" onClick={() => setDrawerItem(newItem(activePhase))}>添加子项</button></div>
-      <div className="case-phase-body">
-        <nav className="case-phase-nav" aria-label="动作阶段">
-          {(Object.keys(phaseMeta) as CasePhase[]).map(phase => {
-            const count = draft.items.filter(item => item.phase === phase).length;
-            return <button type="button" className={activePhase === phase ? "active" : ""} key={phase} onClick={() => setActivePhase(phase)}><b>{phaseMeta[phase].title}</b><span>{phaseMeta[phase].subtitle} · {count} 项</span></button>;
-          })}
-        </nav>
-        <div className="case-phase-list">
-          {phaseItems.map(item => <article className="case-action-card" key={item.id} onClick={() => setDrawerItem(structuredClone(item))}>
-            <div><b>{item.name}</b><span className="action-type">{item.type}</span><button type="button" className={`switch ${item.enabled ? "on" : ""}`} onClick={event => { event.stopPropagation(); setDraft(current => ({ ...current, items: current.items.map(value => value.id === item.id ? { ...value, enabled: !value.enabled } : value) })); }} /></div>
-            <p>{item.timeout}ms　{item.retry ? "可重试" : "不重试"}　{item.continueOnFail ? "失败继续" : "失败中断"}</p>
-            {item.type === "custom_sql" && item.config ? <pre>{item.config}</pre> : null}
-          </article>)}
-          {phaseItems.length === 0 ? <EmptyState>当前阶段暂无子项，点击“添加子项”开始配置</EmptyState> : null}
-        </div>
+    <section className="case-phase-workspace case-phase-columns-workspace" aria-label="三阶段动作编排">
+      <div className="case-phase-toolbar"><span>三阶段动作编排</span></div>
+      <div className="case-phase-columns">
+        {(Object.keys(phaseMeta) as CasePhase[]).map(phase => {
+          const items = draft.items.filter(item => item.phase === phase);
+          return <section className="case-phase-column" key={phase}>
+            <header><span><b>{phaseMeta[phase].title}</b><small>{phase === "pre_test" ? "准备：建表、清表、基线数据" : phase === "test" ? "核心 DDL / DML 与验证动作" : "恢复：失败会记录，不影响核心结论"}</small></span><button type="button" aria-label={`添加 ${phaseMeta[phase].title} 子项`} onClick={() => setDrawerItem(newItem(phase))}><Plus size={15} />添加</button></header>
+            <div className="case-phase-column-list">
+              {items.map((item, index) => <article className="case-action-card case-action-card-rich" key={item.id} onClick={() => setDrawerItem(structuredClone(item))}>
+                <div><span className="item-index">{index + 1}</span><b>{item.name}</b><span className="action-type">{item.type}</span><span className="card-spacer" /><button type="button" className={`switch ${item.enabled ? "on" : ""}`} aria-label={`切换${item.name}`} onClick={event => { event.stopPropagation(); setDraft(current => ({ ...current, items: current.items.map(value => value.id === item.id ? { ...value, enabled: !value.enabled } : value) })); }} /><button type="button" className="order-button" aria-label={`下移${item.name}`} disabled={index === items.length - 1} onClick={event => { event.stopPropagation(); moveItem(phase, item.id, 1); }}><ArrowDown /></button><button type="button" className="order-button" aria-label={`上移${item.name}`} disabled={index === 0} onClick={event => { event.stopPropagation(); moveItem(phase, item.id, -1); }}><ArrowUp /></button><button type="button" className="edit-item-button" aria-label={`配置${item.name}`} onClick={event => { event.stopPropagation(); setDrawerItem(structuredClone(item)); }}><Plus /></button></div>
+                <p>{item.timeout}ms　{item.retry ? "可重试" : "不重试"}　{item.continueOnFail ? "失败继续" : "失败中断"}</p>
+                {(item.type === "custom_sql" || item.type === "custom_sqls") && item.config ? <pre>{item.config}</pre> : null}
+              </article>)}
+              {items.length === 0 ? <EmptyState>暂无子项</EmptyState> : null}
+            </div>
+          </section>;
+        })}
       </div>
     </section>
     <footer className="case-editor-footer"><button type="button" className="btn" onClick={() => navigate("/cases")}>返回</button><button type="button" className="btn" onClick={saveDraft}>保存草稿</button><button type="button" className="btn">校验用例</button><button className="btn primary">保存</button></footer>

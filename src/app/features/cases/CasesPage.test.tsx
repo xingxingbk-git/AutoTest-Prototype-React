@@ -17,19 +17,22 @@ describe("test case module", () => {
     expect(screen.queryByText("批量启用")).not.toBeInTheDocument();
   });
 
-  it("renders the new case form with phase navigation and drawer entry", () => {
+  it("renders the new case form with three parallel phase columns and drawer entries", () => {
     history.pushState({}, "", "/cases/new");
     render(<App />);
 
     expect(screen.getByLabelText("用例名称")).toBeInTheDocument();
     expect(screen.getByLabelText("用例描述")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "添加子项" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "三阶段动作编排" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加 PRE_TEST 子项" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加 TEST 子项" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加 POST_TEST 子项" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存草稿" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "校验用例" })).toBeInTheDocument();
-    const phaseNavigation = screen.getByRole("navigation", { name: "动作阶段" });
-    expect(within(phaseNavigation).getByText("PRE_TEST", { exact: true })).toBeInTheDocument();
-    expect(within(phaseNavigation).getByText("TEST", { exact: true })).toBeInTheDocument();
-    expect(within(phaseNavigation).getByText("POST_TEST", { exact: true })).toBeInTheDocument();
+    const phaseRegion = screen.getByRole("region", { name: "三阶段动作编排" });
+    expect(within(phaseRegion).getByText("PRE_TEST", { exact: true })).toBeInTheDocument();
+    expect(within(phaseRegion).getByText("TEST", { exact: true })).toBeInTheDocument();
+    expect(within(phaseRegion).getByText("POST_TEST", { exact: true })).toBeInTheDocument();
   });
 
   it("supports removable tags, hidden select placeholders and a readonly drawer phase", async () => {
@@ -49,7 +52,7 @@ describe("test case module", () => {
     await user.click(removeBaseTag);
     expect(screen.queryByText("基础", { selector: ".case-tag-input .tag" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "添加子项" }));
+    await user.click(screen.getByRole("button", { name: "添加 PRE_TEST 子项" }));
     expect(screen.getByLabelText("阶段类型")).toBeDisabled();
     expect(screen.getByLabelText("阶段类型")).toHaveValue("PRE_TEST");
   });
