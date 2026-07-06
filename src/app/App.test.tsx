@@ -12,6 +12,15 @@ describe("application shell", () => {
     expect(within(navigation).getByRole("link", { name: "测试用例" })).toBeInTheDocument();
     expect(within(navigation).getByRole("link", { name: "测试任务" })).toBeInTheDocument();
     expect(screen.getByText("自动化测试工作台")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "新建用例" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "新建任务" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "执行任务" })).toBeInTheDocument();
+    for (const title of ["正在执行的测试任务", "最近一次任务执行结果", "最近失败记录", "环境健康状态", "系统动态"]) {
+      expect(screen.getByText(title)).toBeInTheDocument();
+    }
+    for (const label of ["启用测试用例", "测试任务", "最近执行通过率", "异常环境"]) {
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0);
+    }
     expect(screen.queryByText("执行批次")).not.toBeInTheDocument();
   });
 });

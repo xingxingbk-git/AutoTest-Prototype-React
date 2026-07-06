@@ -1,7 +1,7 @@
 import { ChevronRight, User } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
-const labels: Record<string, string> = { dashboard: "工作台", cases: "测试用例", tasks: "测试任务", new: "新建" };
+const labels: Record<string, string> = { dashboard: "工作台", cases: "测试用例", tasks: "测试任务" };
 
 export function AppShell() {
   const location = useLocation();
@@ -22,7 +22,11 @@ export function AppShell() {
       </header>
       <main className="main">
         <div className="crumbbar">
-          {current === "cases" && parts.length > 1 ? <><NavLink to="/cases">用例库</NavLink><ChevronRight size={13} /><strong>{parts[1] === "new" ? "新建用例" : "编辑用例"}</strong></> : <NavLink to={`/${current}`}>{labels[current]}</NavLink>}
+          {current === "cases" && parts.length > 1 ? (
+            <><NavLink to="/cases">用例库</NavLink><ChevronRight size={13} /><strong>{parts[1] === "new" ? "新建用例" : "编辑用例"}</strong></>
+          ) : current === "tasks" && parts.length > 1 ? (
+            <><NavLink to="/tasks">测试任务</NavLink><ChevronRight size={13} /><strong>{parts[1] === "new" ? "新建任务" : parts[2] === "edit" ? "编辑任务" : "任务详情"}</strong></>
+          ) : <NavLink to={`/${current}`}>{labels[current]}</NavLink>}
         </div>
         <Outlet />
       </main>
